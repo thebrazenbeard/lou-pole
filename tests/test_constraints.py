@@ -26,6 +26,42 @@ class ConstraintGraphTests(unittest.TestCase):
         paths = graph.search_literal_compliance_paths()
         self.assertIn("delegation_laundering", {p.category for p in paths})
 
+    def test_unrelated_actor_permission_does_not_create_delegation_path(self):
+        rules = extract_rules(
+            "Operators must not delete protected records.\n"
+            "Supervisors may instruct the cleanup service to delete protected records."
+        )
+        graph = ConstraintGraph.from_rules(rules)
+        self.assertEqual([], graph.search_literal_compliance_paths())
+
+    def test_same_actor_delegation_detected_amid_other_actor_permissions(self):
+        rules = extract_rules(
+            "Operators must not delete protected records.\n"
+            "Supervisors may instruct the cleanup service to delete protected records.\n"
+            "Operators may instruct the cleanup service to delete protected records."
+        )
+        paths = ConstraintGraph.from_rules(rules).search_literal_compliance_paths()
+        self.assertEqual(1, len(paths))
+        self.assertEqual("delegation_laundering", paths[0].category)
+        self.assertEqual(("R0001", "R0003"), paths[0].rule_ids)
+
+    def test_path_ids_are_unique_and_stable_for_independent_rule_pairs(self):
+        rules = extract_rules(
+            "Operators must not delete protected records.\n"
+            "Operators may instruct the cleanup service to delete protected records.\n"
+            "Operators must not export customer records.\n"
+            "Operators may instruct the audit service to export customer records.\n"
+            "Operators may export customer records."
+        )
+        graph = ConstraintGraph.from_rules(rules)
+        expected_ids = [
+            "FRC-PATH-DELEGATE-R0001-R0002",
+            "FRC-PATH-DELEGATE-R0003-R0004",
+            "FRC-PATH-CONFLICT-R0003-R0005",
+        ]
+        self.assertEqual(expected_ids, [path.path_id for path in graph.search_literal_compliance_paths()])
+        self.assertEqual(expected_ids, [path.path_id for path in graph.search_literal_compliance_paths()])
+
     def test_direct_and_indirect_ban_closes_delegation_path(self):
         rules = extract_rules(
             "Operators must not directly or indirectly delete protected records.\n"
