@@ -197,10 +197,10 @@ class ConstraintGraph:
                 if ban.effect_key != allow.effect_key:
                     continue
 
-                if allow.indirect and not ban.indirect:
+                if allow.indirect and not ban.indirect and ban.subject == allow.subject:
                     paths.append(
                         AdversarialPath(
-                            path_id="FRC-PATH-DELEGATE",
+                            path_id=f"FRC-PATH-DELEGATE-{ban.rule_id}-{allow.rule_id}",
                             category="delegation_laundering",
                             target_effect=ban.effect_key,
                             rule_ids=(ban.rule_id, allow.rule_id),
@@ -219,7 +219,7 @@ class ConstraintGraph:
                 elif ban.subject == allow.subject:
                     paths.append(
                         AdversarialPath(
-                            path_id="FRC-PATH-CONFLICT",
+                            path_id=f"FRC-PATH-CONFLICT-{ban.rule_id}-{allow.rule_id}",
                             category="literal_permission_conflict",
                             target_effect=ban.effect_key,
                             rule_ids=(ban.rule_id, allow.rule_id),
