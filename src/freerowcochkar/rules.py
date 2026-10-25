@@ -47,6 +47,11 @@ CONDITION = re.compile(
 )
 EXCEPTION = re.compile(r"\b(unless|except(?:\s+when|\s+for)?|notwithstanding)\b(.+)$", re.IGNORECASE)
 WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+INLINE_SUBJECT_MARKUP = re.compile(
+    r"(?<![\w\\*_`])(?P<marker>\*{1,3}|_{1,3}|`)"
+    r"(?P<label>[A-Za-z][A-Za-z0-9_ -]*?)"
+    r"(?P=marker)(?![\w*_`])"
+)
 TO_ACTION = re.compile(
     r"\b(?:to|that\s+\w+\s+should)\s+([A-Za-z][A-Za-z0-9_-]*)\s+(.+?)(?:[.;]|$)",
     re.IGNORECASE,
@@ -116,14 +121,14 @@ def extract_rules(text: str, *, include_nonoperative: bool = False) -> list[Rule
 
 
 def _sentences(raw: str) -> list[str]:
-    return [
-        part.strip(" \t-*#>")
-        for part in re.split(r"(?<=[.!?;])\s+", raw)
-        if part.strip(" \t-*#>")
-    ]
+    return [part.strip() for part in re.split(r"(?<=[.!?;])\s+", raw) if part.strip()]
 
 
 def _parse_sentence(text: str, line: int, ordinal: int) -> Rule | None:
+    source_text = text
+    # Treat Markdown structure as presentation while retaining literal evidence.
+    text = re.sub(r"^(?:(?:[-*+]\s+)|(?:#+\s+)|(?:>+\s*))*", "", text)
+    text = _strip_markdown_wrappers(text)
     if UNKNOWN_NEGATIVE_QUANTIFIER.match(text):
         return None
     if DESCRIPTIVE_NEVER.search(text):
@@ -178,11 +183,11 @@ def _parse_sentence(text: str, line: int, ordinal: int) -> Rule | None:
     if not action:
         return None
 
-    span = SourceSpan(line_start=line, line_end=line, text=text)
+    span = SourceSpan(line_start=line, line_end=line, text=source_text)
     return Rule(
         rule_id=f"R{ordinal:04d}",
         modality=modality,
-        subject=_norm_phrase(subject),
+        subject=_norm_subject(subject),
         action=action,
         object=obj,
         effect_key=normalize_effect(action, obj),
@@ -273,3 +278,21 @@ def _capture_tail(regex: re.Pattern[str], text: str) -> str | None:
 
 def _norm_phrase(value: str) -> str:
     return re.sub(r"\s+", " ", value.lower()).strip(" .,:;")
+
+
+def _norm_subject(value: str) -> str:
+    value = _strip_markdown_wrappers(value)
+    value = INLINE_SUBJECT_MARKUP.sub(lambda match: match.group("label"), value)
+    return _norm_phrase(value)
+
+
+def _strip_markdown_wrappers(value: str) -> str:
+    value = value.strip()
+    while True:
+        for marker in ("**", "__", "*", "_", "`"):
+            if value.startswith(marker) and value.endswith(marker) and len(value) > 2 * len(marker):
+                value = value[len(marker):-len(marker)].strip()
+                break
+        else:
+            break
+    return value

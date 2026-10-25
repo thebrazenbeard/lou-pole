@@ -57,6 +57,90 @@
       "must_exclude": []
     },
     {
+      "id": "graph-markdown-emphasis-actor",
+      "profile": "instructions",
+      "text": "Operators must not delete protected records.\n**Operators** may instruct the cleanup service to delete protected records.",
+      "must_include": ["delegation_laundering"],
+      "must_exclude": []
+    },
+    {
+      "id": "graph-nested-markdown-emphasis-actor",
+      "profile": "instructions",
+      "text": "Operators must not delete protected records.\n***Operators*** may instruct the cleanup service to delete protected records.",
+      "must_include": ["delegation_laundering"],
+      "must_exclude": []
+    },
+    {
+      "id": "graph-inline-code-markdown-emphasis-actor",
+      "profile": "instructions",
+      "text": "Operators must not delete protected records.\n`**Operators**` may instruct the cleanup service to delete protected records.",
+      "must_include": ["delegation_laundering"],
+      "must_exclude": []
+    },
+    {
+      "id": "graph-whole-sentence-markdown-prohibition",
+      "profile": "instructions",
+      "text": "**Operators must not delete protected records.**\nOperators may instruct the cleanup service to delete protected records.",
+      "must_include": ["delegation_laundering"],
+      "must_exclude": []
+    },
+    {
+      "id": "graph-whole-sentence-markdown-permission",
+      "profile": "instructions",
+      "text": "Operators must not delete protected records.\n**Operators may instruct the cleanup service to delete protected records.**",
+      "must_include": ["delegation_laundering"],
+      "must_exclude": []
+    },
+    {
+      "id": "graph-italic-sentence-markdown-permission",
+      "profile": "instructions",
+      "text": "Operators must not delete protected records.\n*Operators may instruct the cleanup service to delete protected records.*",
+      "must_include": ["delegation_laundering"],
+      "must_exclude": []
+    },
+    {
+      "id": "graph-heading-bold-prohibition",
+      "profile": "instructions",
+      "text": "# **Operators must not delete protected records.**\nOperators may instruct the cleanup service to delete protected records.",
+      "must_include": ["delegation_laundering"],
+      "must_exclude": []
+    },
+    {
+      "id": "graph-marked-different-actor-does-not-conflate",
+      "profile": "instructions",
+      "text": "Operators must not delete protected records.\n**Supervisors** may instruct the cleanup service to delete protected records.",
+      "must_include": [],
+      "must_exclude": ["delegation_laundering"]
+    },
+    {
+      "id": "graph-compound-actor-internal-emphasis",
+      "profile": "instructions",
+      "text": "Operators on duty must not delete protected records.\n**Operators** on duty may instruct the cleanup service to delete protected records.",
+      "must_include": ["delegation_laundering"],
+      "must_exclude": []
+    },
+    {
+      "id": "graph-compound-different-actor-no-conflation",
+      "profile": "instructions",
+      "text": "Operators on duty must not delete protected records.\n**Supervisors** on duty may instruct the cleanup service to delete protected records.",
+      "must_include": [],
+      "must_exclude": ["delegation_laundering"]
+    },
+    {
+      "id": "graph-compound-escaped-markup-not-aliased",
+      "profile": "instructions",
+      "text": "Operators on duty must not delete protected records.\n\\**Operators** on duty may instruct the cleanup service to delete protected records.",
+      "must_include": [],
+      "must_exclude": ["delegation_laundering"]
+    },
+    {
+      "id": "graph-identifier-underscore-not-formatting",
+      "profile": "instructions",
+      "text": "Operatorsfoo must not delete protected records.\nOperators_foo_ may instruct the cleanup service to delete protected records.",
+      "must_include": [],
+      "must_exclude": ["delegation_laundering"]
+    },
+    {
       "id": "graph-scope-difference-no-false-conflict",
       "profile": "instructions",
       "text": "Operators must not export customer records.\nOperators may export audit records.",

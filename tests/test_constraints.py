@@ -45,6 +45,88 @@ class ConstraintGraphTests(unittest.TestCase):
         self.assertEqual("delegation_laundering", paths[0].category)
         self.assertEqual(("R0001", "R0003"), paths[0].rule_ids)
 
+    def test_markdown_emphasis_does_not_change_the_actor(self):
+        for actor in ("**Operators**", "***Operators***", "`**Operators**`", "__Operators__", "`Operators`"):
+            with self.subTest(actor=actor):
+                rules = extract_rules(
+                    "Operators must not delete protected records.\n"
+                    f"{actor} may instruct the cleanup service to delete protected records."
+                )
+                paths = ConstraintGraph.from_rules(rules).search_literal_compliance_paths()
+                self.assertEqual(1, len(paths))
+                self.assertEqual("delegation_laundering", paths[0].category)
+                self.assertEqual(("R0001", "R0002"), paths[0].rule_ids)
+
+        unrelated = extract_rules(
+            "Operators must not delete protected records.\n"
+            "**Supervisors** may instruct the cleanup service to delete protected records."
+        )
+        self.assertEqual([], ConstraintGraph.from_rules(unrelated).search_literal_compliance_paths())
+
+    def test_whole_sentence_emphasis_preserves_effect_and_evidence(self):
+        ban = "Operators must not delete protected records."
+        allow = "Operators may instruct the cleanup service to delete protected records."
+        for text in (
+            f"**{ban}**\n{allow}",
+            f"{ban}\n**{allow}**",
+            f"*{ban}*\n{allow}",
+            f"{ban}\n*{allow}*",
+            f"# **{ban}**\n{allow}",
+            f"***{ban}***\n`**{allow}**`",
+        ):
+            with self.subTest(text=text):
+                rules = extract_rules(text)
+                self.assertEqual(2, len(rules))
+                self.assertEqual("operators", rules[0].subject)
+                self.assertEqual("operators", rules[1].subject)
+                self.assertEqual("delete:protected records", rules[0].effect_key)
+                self.assertEqual("delete:protected records", rules[1].effect_key)
+                self.assertEqual(text.splitlines(), [r.source.text for r in rules])
+                paths = ConstraintGraph.from_rules(rules).search_literal_compliance_paths()
+                self.assertEqual(["delegation_laundering"], [p.category for p in paths])
+
+        other = extract_rules(f"**{ban}**\n**Supervisors may instruct the cleanup service to delete protected records.**")
+        self.assertEqual([], ConstraintGraph.from_rules(other).search_literal_compliance_paths())
+
+        escaped = extract_rules(f"{ban}\n\\**Operators** may instruct the cleanup service to delete protected records.")
+        self.assertEqual([], ConstraintGraph.from_rules(escaped).search_literal_compliance_paths())
+
+    def test_internal_markdown_emphasis_in_compound_actor(self):
+        ban = "Operators on duty must not delete protected records."
+        for decorated in (
+            "**Operators** on duty",
+            "***Operators*** on duty",
+            "`Operators` on duty",
+            "Operators **on duty**",
+            "__Operators__ on duty",
+        ):
+            with self.subTest(decorated=decorated):
+                text = f"{ban}\n{decorated} may instruct the cleanup service to delete protected records."
+                rules = extract_rules(text)
+                self.assertEqual(["operators on duty", "operators on duty"], [r.subject for r in rules])
+                self.assertEqual(text.splitlines(), [r.source.text for r in rules])
+                paths = ConstraintGraph.from_rules(rules).search_literal_compliance_paths()
+                self.assertEqual(["delegation_laundering"], [p.category for p in paths])
+
+        for non_alias in (
+            "**Supervisors** on duty",
+            r"\**Operators** on duty",
+            "Operators* on duty",
+            "Operators **off duty**",
+        ):
+            with self.subTest(non_alias=non_alias):
+                rules = extract_rules(
+                    f"{ban}\n{non_alias} may instruct the cleanup service to delete protected records."
+                )
+                self.assertEqual([], ConstraintGraph.from_rules(rules).search_literal_compliance_paths())
+
+        identifiers = extract_rules(
+            "Operatorsfoo must not delete protected records.\n"
+            "Operators_foo_ may instruct the cleanup service to delete protected records."
+        )
+        self.assertEqual([], ConstraintGraph.from_rules(identifiers).search_literal_compliance_paths())
+        self.assertEqual("operators_foo_", identifiers[1].subject)
+
     def test_path_ids_are_unique_and_stable_for_independent_rule_pairs(self):
         rules = extract_rules(
             "Operators must not delete protected records.\n"
