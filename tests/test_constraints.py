@@ -45,6 +45,24 @@ class ConstraintGraphTests(unittest.TestCase):
         self.assertEqual("delegation_laundering", paths[0].category)
         self.assertEqual(("R0001", "R0003"), paths[0].rule_ids)
 
+    def test_markdown_emphasis_does_not_change_the_actor(self):
+        for actor in ("**Operators**", "***Operators***", "`**Operators**`", "__Operators__", "`Operators`"):
+            with self.subTest(actor=actor):
+                rules = extract_rules(
+                    "Operators must not delete protected records.\n"
+                    f"{actor} may instruct the cleanup service to delete protected records."
+                )
+                paths = ConstraintGraph.from_rules(rules).search_literal_compliance_paths()
+                self.assertEqual(1, len(paths))
+                self.assertEqual("delegation_laundering", paths[0].category)
+                self.assertEqual(("R0001", "R0002"), paths[0].rule_ids)
+
+        unrelated = extract_rules(
+            "Operators must not delete protected records.\n"
+            "**Supervisors** may instruct the cleanup service to delete protected records."
+        )
+        self.assertEqual([], ConstraintGraph.from_rules(unrelated).search_literal_compliance_paths())
+
     def test_path_ids_are_unique_and_stable_for_independent_rule_pairs(self):
         rules = extract_rules(
             "Operators must not delete protected records.\n"

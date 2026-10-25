@@ -57,6 +57,27 @@
       "must_exclude": []
     },
     {
+      "id": "graph-markdown-emphasis-actor",
+      "profile": "instructions",
+      "text": "Operators must not delete protected records.\n**Operators** may instruct the cleanup service to delete protected records.",
+      "must_include": ["delegation_laundering"],
+      "must_exclude": []
+    },
+    {
+      "id": "graph-nested-markdown-emphasis-actor",
+      "profile": "instructions",
+      "text": "Operators must not delete protected records.\n***Operators*** may instruct the cleanup service to delete protected records.",
+      "must_include": ["delegation_laundering"],
+      "must_exclude": []
+    },
+    {
+      "id": "graph-inline-code-markdown-emphasis-actor",
+      "profile": "instructions",
+      "text": "Operators must not delete protected records.\n`**Operators**` may instruct the cleanup service to delete protected records.",
+      "must_include": ["delegation_laundering"],
+      "must_exclude": []
+    },
+    {
       "id": "graph-scope-difference-no-false-conflict",
       "profile": "instructions",
       "text": "Operators must not export customer records.\nOperators may export audit records.",

@@ -116,11 +116,13 @@ def extract_rules(text: str, *, include_nonoperative: bool = False) -> list[Rule
 
 
 def _sentences(raw: str) -> list[str]:
-    return [
-        part.strip(" \t-*#>")
-        for part in re.split(r"(?<=[.!?;])\s+", raw)
-        if part.strip(" \t-*#>")
-    ]
+    sentences: list[str] = []
+    for part in re.split(r"(?<=[.!?;])\s+", raw):
+        # Remove Markdown list/heading markers, not inline emphasis on actor names.
+        cleaned = re.sub(r"^(?:(?:[-*+]\s+)|(?:#+\s+)|(?:>+\s*))*", "", part.strip())
+        if cleaned:
+            sentences.append(cleaned)
+    return sentences
 
 
 def _parse_sentence(text: str, line: int, ordinal: int) -> Rule | None:
@@ -182,7 +184,7 @@ def _parse_sentence(text: str, line: int, ordinal: int) -> Rule | None:
     return Rule(
         rule_id=f"R{ordinal:04d}",
         modality=modality,
-        subject=_norm_phrase(subject),
+        subject=_norm_subject(subject),
         action=action,
         object=obj,
         effect_key=normalize_effect(action, obj),
@@ -273,3 +275,15 @@ def _capture_tail(regex: re.Pattern[str], text: str) -> str | None:
 
 def _norm_phrase(value: str) -> str:
     return re.sub(r"\s+", " ", value.lower()).strip(" .,:;")
+
+
+def _norm_subject(value: str) -> str:
+    value = value.strip()
+    while True:
+        for marker in ("**", "__", "*", "_", "`"):
+            if value.startswith(marker) and value.endswith(marker) and len(value) > 2 * len(marker):
+                value = value[len(marker):-len(marker)].strip()
+                break
+        else:
+            break
+    return _norm_phrase(value)
