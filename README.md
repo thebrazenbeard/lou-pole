@@ -82,7 +82,9 @@ freerowcochkar rules.md --graph-json
 ~~~
 
 Both JSON outputs include a `coverage` summary: how many rules were extracted,
-which normative-looking clauses were not parsed, and a limitation notice. An
+which normative-looking clauses were not parsed, and a limitation notice. Coverage
+has an explicit status such as `heuristic_partial` or
+`heuristic_extracted_unverified`, never a claim of complete parsing. An
 exit status of zero means no *detected* high-severity findings (or graph paths);
 it does **not** mean the input is safe, fully parsed, or compliant. The numeric
 risk score is a triage heuristic, not exploit likelihood.
@@ -95,6 +97,33 @@ conflict. Other pairs of distinct guards are surfaced as unresolved by the
 regular analyzer; this is **not** proof of temporal or logical disjointness.
 Role aliases, complex nested clauses, implied exceptions, and external
 authorization still require independent review.
+
+### Source attribution and known blind spots
+
+Markdown blockquotes and fenced code are **excluded from default operative-rule
+inference**, with line-preserving offsets. Their excluded spans appear in JSON
+as `coverage.nonoperative_clauses`, each marked `attribution_status: unverified`.
+This is **not** a claim that a quoted passage is legally or operationally
+nonbinding: a document can explicitly incorporate quoted text. Headings are
+**not** excluded; they may contain binding rules. To explicitly treat quotes
+and fences as active input, use `--include-nonoperative`. An empty finding set
+does not establish safety, particularly when excluded or unparsed spans exist.
+
+To bind a report to the exact UTF-8 text submitted for analysis, pass
+`--provenance` with `--json` or `--graph-json`. `--source-url URL` optionally
+labels that content; the URL is **not fetched or verified**. The reported
+`content_sha256` digests the original analyzed string, including line endings,
+not its filtered view or any purported remote file.
+
+Normative grammar is deliberately incomplete. The parser recognizes some
+`without [prior|explicit|written] approval/authorization/permission/consent`
+guards without mistaking the approval requirement for an executable effect.
+Passive voice, causative `have` delegation, richer condition logic, and implicit
+actor/role equivalence remain unparsed. Code scanning masks comments and
+ordinary string literals **only for parseable Python**; f-string interpolations
+are retained. Other or malformed languages use generic regex fallback, and
+executable code dynamically assembled in `exec()`/`eval()` strings is **not
+analyzed**. These are explicit coverage limitations, not clearance findings.
 
 ## Example
 

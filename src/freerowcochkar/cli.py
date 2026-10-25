@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from .analyzer import analyze, scan_coverage
+from .analyzer import analyze, scan_coverage, source_provenance
 from .constraints import ConstraintGraph
 from .rules import extract_rules
 
@@ -52,6 +52,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Analysis profile.",
     )
     parser.add_argument("--intent", help="Optional plain-language intended invariant.")
+    parser.add_argument(
+        "--provenance", action="store_true",
+        help="Include a SHA-256 digest of the analyzed UTF-8 text in JSON output.",
+    )
+    parser.add_argument(
+        "--source-url", help="Optional caller-declared source URL (not fetched or verified).",
+    )
+    parser.add_argument(
+        "--include-nonoperative", action="store_true",
+        help="Analyze quoted and fenced Markdown as operative (explicit caller override).",
+    )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable finding JSON.")
     parser.add_argument(
         "--graph-json",
@@ -69,13 +80,23 @@ def main(argv: list[str] | None = None) -> int:
         text = sys.stdin.read()
 
     if args.graph_json:
-        graph = ConstraintGraph.from_rules(extract_rules(text))
+        graph = ConstraintGraph.from_rules(extract_rules(
+            text, include_nonoperative=args.include_nonoperative
+        ))
         payload = graph.to_dict()
-        payload["coverage"] = scan_coverage(text)
+        payload["coverage"] = scan_coverage(
+            text, include_nonoperative=args.include_nonoperative
+        )
+        if args.provenance or args.source_url is not None:
+            payload["source"] = source_provenance(text, source_url=args.source_url)
         print(json.dumps(payload, indent=2))
         return 1 if graph.search_literal_compliance_paths() else 0
 
-    report = analyze(text, profile=args.profile, intent=args.intent)
+    report = analyze(
+        text, profile=args.profile, intent=args.intent,
+        include_source=args.provenance, source_url=args.source_url,
+        include_nonoperative=args.include_nonoperative,
+    )
     if args.json:
         print(json.dumps(report.to_dict(), indent=2))
     else:

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import ast
+import hashlib
+import io
 import re
+import tokenize
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Iterable
@@ -8,6 +12,7 @@ from typing import Iterable
 from .constraints import ConstraintGraph, Modality, guard_relation
 from .models import AnalysisReport, Evidence, Finding, Severity
 from .rules import extract_rules
+from .source_roles import mask_nonoperative_markdown
 
 
 NORMATIVE_RE = re.compile(
@@ -63,6 +68,59 @@ CODE_DEFAULT_ALLOW_RE = re.compile(
     r"except[^:]*:\s*(?:\n\s*)?return\s+True\b",
     re.IGNORECASE,
 )
+
+
+def _python_executable_text(text: str) -> str:
+    """Hide Python comments and literal strings without changing source offsets.
+
+    Only confidently parsed Python gets this filtering. Other code and partial
+    snippets retain the existing generic regex analysis. For f-strings, simple
+    parseable interpolations remain visible; literal prose is masked.
+    """
+    try:
+        ast.parse(text)
+    except (SyntaxError, ValueError):
+        return text
+
+    offsets = [0]
+    for line in text.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+
+    masked = list(text)
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (tokenize.TokenError, IndentationError):
+        return text
+
+    literal_tokens = {tokenize.STRING, tokenize.COMMENT, getattr(tokenize, "FSTRING_MIDDLE", -1)}
+    for token in tokens:
+        if token.type not in literal_tokens:
+            continue
+        start = offsets[token.start[0] - 1] + token.start[1]
+        end = offsets[token.end[0] - 1] + token.end[1]
+        for index in range(start, end):
+            if masked[index] not in "\r\n":
+                masked[index] = " "
+
+        if token.type != tokenize.STRING:
+            continue
+        opening = re.match(r"(?i)^([rubf]*)(\"\"\"|'''|\"|')", token.string)
+        if not opening or "f" not in opening.group(1).lower():
+            continue
+        body_start = opening.end()
+        body = token.string[body_start:-len(opening.group(2))]
+        for match in re.finditer(r"(?<!\{)\{([^{}]+)\}(?!\})", body):
+            expression = match.group(1)
+            stripped = expression.strip()
+            try:
+                ast.parse(stripped, mode="eval")
+            except (SyntaxError, ValueError):
+                continue
+            expression_start = start + body_start + match.start(1) + len(expression) - len(expression.lstrip())
+            executable_expression = _python_executable_text(stripped)
+            masked[expression_start:expression_start + len(executable_expression)] = executable_expression
+    return "".join(masked)
+
 
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "if", "in",
@@ -127,22 +185,62 @@ def _ev(clause: Clause) -> tuple[Evidence, ...]:
     return (Evidence(clause.line, clause.line, clause.text),)
 
 
-def scan_coverage(text: str) -> dict[str, object]:
+def scan_coverage(text: str, *, include_nonoperative: bool = False) -> dict[str, object]:
     """Expose observable parser gaps without claiming semantic completeness."""
+    roles = mask_nonoperative_markdown(text, include_nonoperative=include_nonoperative)
+    operative_text = roles.masked_text
+    clauses = _clauses(operative_text)
     skipped = [
         {"line_start": clause.line, "line_end": clause.line, "text": clause.text}
-        for clause in _clauses(text)
+        for clause in clauses
         if NORMATIVE_RE.search(clause.text) and not extract_rules(clause.text)
     ]
+    extracted_count = len(extract_rules(operative_text, include_nonoperative=True))
+    original_lines = text.splitlines()
+    excluded = [
+        {
+            "line_start": span.line_start,
+            "line_end": span.line_end,
+            "text": "\n".join(original_lines[span.line_start - 1:span.line_end]),
+            "source_role": span.reason,
+            "attribution_status": "unverified",
+        }
+        for span in roles.excluded_spans
+    ]
+    if not text.strip():
+        status = "empty_input"
+    elif extracted_count == 0:
+        status = "no_rules_extracted"
+    elif skipped:
+        status = "heuristic_partial"
+    else:
+        status = "heuristic_extracted_unverified"
     return {
-        "extracted_rule_count": len(extract_rules(text)),
+        "status": status,
+        "nonempty_clause_count": len(clauses),
+        "extracted_rule_count": extracted_count,
         "unparsed_normative_clause_count": len(skipped),
         "unparsed_normative_clauses": skipped,
+        "nonoperative_clause_count": len(excluded),
+        "nonoperative_clauses": excluded,
         "notice": (
             "Heuristic extraction is not a safety determination. Zero findings or zero "
-            "unparsed clauses does not prove completeness, compliance, or absence of loopholes."
+            "unparsed clauses does not prove completeness, compliance, or absence of loopholes. "
+            "Excluded Markdown spans have unverified authority, not proved nonoperative status."
         ),
     }
+
+
+def source_provenance(text: str, *, source_url: str | None = None) -> dict[str, str]:
+    """Bind a report to the analyzed string, without attesting an external URL."""
+    result = {
+        "content_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "digest_basis": "analyzed_text_utf8",
+        "verification": "not_checked",
+    }
+    if source_url is not None:
+        result["declared_url"] = source_url
+    return result
 
 
 class Analyzer:
@@ -159,11 +257,17 @@ class Analyzer:
         *,
         profile: str = "auto",
         intent: str | None = None,
+        include_source: bool = False,
+        source_url: str | None = None,
+        include_nonoperative: bool = False,
     ) -> AnalysisReport:
+        operative_text = mask_nonoperative_markdown(
+            text, include_nonoperative=include_nonoperative
+        ).masked_text
         if profile == "auto":
-            profile = self._detect_profile(text)
+            profile = self._detect_profile(operative_text)
 
-        clauses = _clauses(text)
+        clauses = _clauses(operative_text)
         findings: list[Finding] = []
         findings.extend(self._ambiguous_scope(clauses))
         findings.extend(self._unbounded_exceptions(clauses))
@@ -171,10 +275,10 @@ class Analyzer:
         findings.extend(self._unresolved_guard_scope(clauses))
         findings.extend(self._fallback_gaps(clauses))
         findings.extend(self._indirect_effect_gaps(clauses))
-        findings.extend(self._constraint_graph_findings(text))
+        findings.extend(self._constraint_graph_findings(operative_text))
 
         if profile in {"code", "mixed"}:
-            findings.extend(self._code_findings(text))
+            findings.extend(self._code_findings(operative_text))
 
         findings.sort(
             key=lambda f: (
@@ -186,7 +290,9 @@ class Analyzer:
             profile=profile,
             findings=findings,
             intent=intent,
-            coverage=scan_coverage(text),
+            coverage=scan_coverage(text, include_nonoperative=include_nonoperative),
+            source=source_provenance(text, source_url=source_url)
+            if include_source or source_url is not None else None,
         )
 
     @staticmethod
@@ -419,7 +525,8 @@ class Analyzer:
         return out
 
     def _constraint_graph_findings(self, text: str) -> list[Finding]:
-        rules = extract_rules(text)
+        # The caller has already applied its selected source-role policy.
+        rules = extract_rules(text, include_nonoperative=True)
         graph = ConstraintGraph.from_rules(rules)
         out: list[Finding] = []
         for path in graph.search_literal_compliance_paths():
@@ -451,13 +558,14 @@ class Analyzer:
     def _code_findings(self, text: str) -> list[Finding]:
         out: list[Finding] = []
         lines = text.splitlines()
+        executable = _python_executable_text(text)
 
         def evidence_for(match: re.Match[str]) -> tuple[Evidence, ...]:
             line = text[:match.start()].count("\n") + 1
             snippet = lines[line - 1].strip() if line <= len(lines) else match.group(0).strip()
             return (Evidence(line, line, snippet),)
 
-        for match in CODE_SWALLOW_RE.finditer(text):
+        for match in CODE_SWALLOW_RE.finditer(executable):
             out.append(Finding(
                 rule_id="FRC-CODE-001",
                 category="silent_failure",
@@ -478,7 +586,7 @@ class Analyzer:
                 confidence=0.95,
             ))
 
-        for match in CODE_DEFAULT_ALLOW_RE.finditer(text):
+        for match in CODE_DEFAULT_ALLOW_RE.finditer(executable):
             out.append(Finding(
                 rule_id="FRC-CODE-002",
                 category="fail_open",
@@ -499,8 +607,8 @@ class Analyzer:
                 confidence=0.90,
             ))
 
-        swallowed = [m.span() for m in CODE_SWALLOW_RE.finditer(text)]
-        for match in CODE_BROAD_EXCEPT_RE.finditer(text):
+        swallowed = [m.span() for m in CODE_SWALLOW_RE.finditer(executable)]
+        for match in CODE_BROAD_EXCEPT_RE.finditer(executable):
             if any(a <= match.start() <= b for a, b in swallowed):
                 continue
             out.append(Finding(
@@ -524,5 +632,13 @@ class Analyzer:
         return out
 
 
-def analyze(text: str, *, profile: str = "auto", intent: str | None = None) -> AnalysisReport:
-    return Analyzer().analyze(text, profile=profile, intent=intent)
+def analyze(
+    text: str, *, profile: str = "auto", intent: str | None = None,
+    include_source: bool = False, source_url: str | None = None,
+    include_nonoperative: bool = False,
+) -> AnalysisReport:
+    return Analyzer().analyze(
+        text, profile=profile, intent=intent,
+        include_source=include_source, source_url=source_url,
+        include_nonoperative=include_nonoperative,
+    )
