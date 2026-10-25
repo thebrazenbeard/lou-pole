@@ -6,7 +6,11 @@ from .constraints import Modality, Rule, SourceSpan, normalize_effect
 
 
 NEGATIVE_MODAL = re.compile(
-    r"\b(must\s+not|shall\s+not|may\s+not|should\s+not|never|do\s+not|"
+    r"\b(must\s+(?:not|never)|shall\s+(?:not|never)|"
+    r"may\s+(?:not|never)|should\s+(?:not|never)|"
+    r"can(?:\s+not|not|['’]t)|"
+    r"(?:is|are)\s+(?:not|never)\s+(?:allowed|permitted)\s+to|"
+    r"never|do\s+not|"
     r"is\s+prohibited\s+from|are\s+prohibited\s+from)\b",
     re.IGNORECASE,
 )
@@ -31,7 +35,10 @@ INDIRECT_SCOPE = re.compile(
     r"request|requests|requested|ask|asks|asked)\b",
     re.IGNORECASE,
 )
-CONDITION = re.compile(r"\b(if|when|provided\s+that|only\s+if)\b(.+)$", re.IGNORECASE)
+CONDITION = re.compile(
+    r"\b(only\s+if|provided\s+that|if|when|until|after|before|while)\b(.+)$",
+    re.IGNORECASE,
+)
 EXCEPTION = re.compile(r"\b(unless|except(?:\s+when|\s+for)?|notwithstanding)\b(.+)$", re.IGNORECASE)
 WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 TO_ACTION = re.compile(
@@ -43,7 +50,32 @@ LEADING_FILLER = {
     "directly", "indirectly", "ever", "generally", "normally", "only", "or", "and",
 }
 OBJECT_TRAIL = re.compile(
-    r"\b(if|when|unless|except|provided\s+that|because|after|before|until|while)\b.*$",
+    r"\b(only\s+if|provided\s+that|if|when|unless|except|because|after|before|until|while)\b.*$",
+    re.IGNORECASE,
+)
+LEADING_NO_MODAL = re.compile(
+    r"^no\s+(?P<subject>[A-Za-z][A-Za-z0-9_ -]*?)\s+"
+    r"(?P<modal>may|can|must|shall)\s+(?P<tail>.+)$",
+    re.IGNORECASE,
+)
+UNKNOWN_NEGATIVE_QUANTIFIER = re.compile(
+    r"^(?:nobody\b|no[ -]one\b|none\b|neither\b|not\s+a\s+single\b)",
+    re.IGNORECASE,
+)
+UNSUPPORTED_NEGATED_TAIL = re.compile(
+    r"^(?:by\s+no\s+means|under\s+no\s+circumstances|no\s+longer)\b",
+    re.IGNORECASE,
+)
+SUBORDINATE_PREFIX = re.compile(
+    r"\b(?:because|so\s+long\s+as|provided\s+that|such\s+that)\b",
+    re.IGNORECASE,
+)
+ABSENCE_OF_DUTY = re.compile(
+    r"\b(?:do\s+not\s+(?:have|need)\s+to|never\s+have\s+to)\b",
+    re.IGNORECASE,
+)
+DESCRIPTIVE_NEVER = re.compile(
+    r"\b(?:is|are|was|were)\s+never\s+(?!allowed\s+to\b|permitted\s+to\b)",
     re.IGNORECASE,
 )
 
@@ -73,13 +105,42 @@ def _sentences(raw: str) -> list[str]:
 
 
 def _parse_sentence(text: str, line: int, ordinal: int) -> Rule | None:
-    match, modality = _find_modal(text)
-    if match is None:
+    if UNKNOWN_NEGATIVE_QUANTIFIER.match(text):
         return None
-
-    subject = text[: match.start()].strip(" ,:")
-    tail = text[match.end():].strip(" ,:")
+    if DESCRIPTIVE_NEVER.search(text):
+        # "Silence is never approval" is a descriptive identity assertion,
+        # not a ban on the action "approval". Unsupported forms remain unparsed.
+        return None
+    leading_no = LEADING_NO_MODAL.match(text)
+    if leading_no:
+        if leading_no.group("modal").lower() not in {"may", "can"}:
+            # "No actor must..." denies an obligation; it is not an action ban.
+            return None
+        subject = leading_no.group("subject")
+        tail = leading_no.group("tail").strip(" ,:")
+        if tail.lower().startswith(("not ", "never ")):
+            return None
+        modality = Modality.PROHIBIT
+    else:
+        match, modality = _find_modal(text)
+        if match is None:
+            return None
+        no_duty = ABSENCE_OF_DUTY.search(text)
+        if no_duty and no_duty.start() <= match.start():
+            # "Not required to act" is not a prohibition of the action.
+            return None
+        subordinate = SUBORDINATE_PREFIX.search(text)
+        if subordinate and subordinate.start() < match.start():
+            # The first recognized modal is in an unsupported subordinate clause.
+            return None
+        subject = text[: match.start()].strip(" ,:")
+        tail = text[match.end():].strip(" ,:")
     if not subject or not tail:
+        return None
+    if modality == Modality.PROHIBIT and tail.lower().startswith(("not ", "never ", "only ")):
+        # Includes double negation and additive "not only...but also...".
+        return None
+    if modality in {Modality.PERMIT, Modality.REQUIRE} and UNSUPPORTED_NEGATED_TAIL.match(tail):
         return None
 
     condition = _capture_tail(CONDITION, tail)

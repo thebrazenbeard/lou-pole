@@ -81,6 +81,21 @@ Inspect the extracted rule/constraint graph and adversarial paths:
 freerowcochkar rules.md --graph-json
 ~~~
 
+Both JSON outputs include a `coverage` summary: how many rules were extracted,
+which normative-looking clauses were not parsed, and a limitation notice. An
+exit status of zero means no *detected* high-severity findings (or graph paths);
+it does **not** mean the input is safe, fully parsed, or compliant. The numeric
+risk score is a triage heuristic, not exploit likelihood.
+
+The typed graph recognizes a bounded subset of English. It handles common
+permission/prohibition forms, certain direct/delegated effects, and textual
+conditions. A ban qualified by `unless X` and a permission guarded by the
+*identical* `if X`/`when X` predicate are not reported as an unconditional
+conflict. Other pairs of distinct guards are surfaced as unresolved by the
+regular analyzer; this is **not** proof of temporal or logical disjointness.
+Role aliases, complex nested clauses, implied exceptions, and external
+authorization still require independent review.
+
 ## Example
 
 Input:

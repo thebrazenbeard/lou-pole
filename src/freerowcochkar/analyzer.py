@@ -5,18 +5,21 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Iterable
 
-from .constraints import ConstraintGraph
+from .constraints import ConstraintGraph, Modality, guard_relation
 from .models import AnalysisReport, Evidence, Finding, Severity
 from .rules import extract_rules
 
 
 NORMATIVE_RE = re.compile(
-    r"\b(must(?:\s+not)?|shall(?:\s+not)?|may(?:\s+not)?|should(?:\s+not)?|"
+    r"^only\s+(?!if\b)|\b(must(?:\s+not)?|shall(?:\s+not)?|may(?:\s+not)?|should(?:\s+not)?|"
+    r"can(?:\s+not|not|['’]t)|(?:is|are)\s+not\s+(?:allowed|permitted)\s+to|"
     r"required(?:\s+to)?|prohibited|forbidden|only\s+if|never|always|do\s+not)\b",
     re.IGNORECASE,
 )
 NEGATIVE_RE = re.compile(
-    r"\b(must\s+not|shall\s+not|may\s+not|should\s+not|prohibited|forbidden|never|do\s+not)\b",
+    r"\b(must\s+not|shall\s+not|may\s+not|should\s+not|"
+    r"can(?:\s+not|not|['’]t)|(?:is|are)\s+not\s+(?:allowed|permitted)\s+to|"
+    r"prohibited|forbidden|never|do\s+not)\b",
     re.IGNORECASE,
 )
 PERMISSIVE_RE = re.compile(r"\b(may|can|allowed|permitted|optional)\b", re.IGNORECASE)
@@ -109,8 +112,37 @@ def _overlap(a: Clause, b: Clause) -> float:
     return max(jaccard, seq * 0.75)
 
 
+def _same_or_narrower_effect_scope(first: str, second: str) -> bool:
+    """Compare literal objects, allowing an explicit ``for <purpose>`` scope.
+
+    Other overlapping vocabulary (for example customer versus audit records)
+    is insufficient evidence for a HIGH contradiction.
+    """
+    if first == second:
+        return True
+    return first.startswith(f"{second} for ") or second.startswith(f"{first} for ")
+
+
 def _ev(clause: Clause) -> tuple[Evidence, ...]:
     return (Evidence(clause.line, clause.line, clause.text),)
+
+
+def scan_coverage(text: str) -> dict[str, object]:
+    """Expose observable parser gaps without claiming semantic completeness."""
+    skipped = [
+        {"line_start": clause.line, "line_end": clause.line, "text": clause.text}
+        for clause in _clauses(text)
+        if NORMATIVE_RE.search(clause.text) and not extract_rules(clause.text)
+    ]
+    return {
+        "extracted_rule_count": len(extract_rules(text)),
+        "unparsed_normative_clause_count": len(skipped),
+        "unparsed_normative_clauses": skipped,
+        "notice": (
+            "Heuristic extraction is not a safety determination. Zero findings or zero "
+            "unparsed clauses does not prove completeness, compliance, or absence of loopholes."
+        ),
+    }
 
 
 class Analyzer:
@@ -136,6 +168,7 @@ class Analyzer:
         findings.extend(self._ambiguous_scope(clauses))
         findings.extend(self._unbounded_exceptions(clauses))
         findings.extend(self._precedence_and_collision(clauses))
+        findings.extend(self._unresolved_guard_scope(clauses))
         findings.extend(self._fallback_gaps(clauses))
         findings.extend(self._indirect_effect_gaps(clauses))
         findings.extend(self._constraint_graph_findings(text))
@@ -149,7 +182,12 @@ class Analyzer:
                 f.rule_id,
             )
         )
-        return AnalysisReport(profile=profile, findings=findings, intent=intent)
+        return AnalysisReport(
+            profile=profile,
+            findings=findings,
+            intent=intent,
+            coverage=scan_coverage(text),
+        )
 
     @staticmethod
     def _detect_profile(text: str) -> str:
@@ -222,9 +260,28 @@ class Analyzer:
 
     def _precedence_and_collision(self, clauses: list[Clause]) -> list[Finding]:
         out: list[Finding] = []
-        normative = [c for c in clauses if NORMATIVE_RE.search(c.text)]
-        for i, a in enumerate(normative):
-            for b in normative[i + 1:]:
+        normative = [
+            (clause, extract_rules(clause.text))
+            for clause in clauses if NORMATIVE_RE.search(clause.text)
+        ]
+        for i, (a, parsed_a) in enumerate(normative):
+            for b, parsed_b in normative[i + 1:]:
+                # Lexical overlap is not evidence that two actors or two
+                # separately scoped effects contradict each other. Keep HIGH
+                # precedence findings to structurally supported comparisons.
+                if len(parsed_a) != 1 or len(parsed_b) != 1:
+                    continue
+                rule_a, rule_b = parsed_a[0], parsed_b[0]
+                if rule_a.subject != rule_b.subject or rule_a.action != rule_b.action:
+                    continue
+                if not _same_or_narrower_effect_scope(rule_a.object, rule_b.object):
+                    continue
+                if {rule_a.modality, rule_b.modality} != {Modality.PROHIBIT, Modality.PERMIT}:
+                    continue
+                ban = rule_a if rule_a.modality == Modality.PROHIBIT else rule_b
+                allow = rule_b if rule_a.modality == Modality.PROHIBIT else rule_a
+                if guard_relation(ban, allow) != "potential_conflict":
+                    continue
                 score = _overlap(a, b)
                 if score < 0.34:
                     continue
@@ -258,6 +315,42 @@ class Analyzer:
                         "for unresolved overlaps."
                     ),
                     confidence=min(0.96, 0.62 + score),
+                ))
+        return out
+
+    def _unresolved_guard_scope(self, clauses: list[Clause]) -> list[Finding]:
+        parsed = [(c, extract_rules(c.text)) for c in clauses if NORMATIVE_RE.search(c.text)]
+        out: list[Finding] = []
+        for i, (a, left) in enumerate(parsed):
+            if len(left) != 1:
+                continue
+            for b, right in parsed[i + 1:]:
+                if len(right) != 1:
+                    continue
+                one, two = left[0], right[0]
+                if {one.modality, two.modality} != {Modality.PROHIBIT, Modality.PERMIT}:
+                    continue
+                if one.subject != two.subject or one.action != two.action:
+                    continue
+                if not _same_or_narrower_effect_scope(one.object, two.object):
+                    continue
+                ban = one if one.modality == Modality.PROHIBIT else two
+                allow = two if one.modality == Modality.PROHIBIT else one
+                if guard_relation(ban, allow) != "unresolved":
+                    continue
+                out.append(Finding(
+                    rule_id="FRC-GUARD-001",
+                    category="guard_overlap_unknown",
+                    severity=Severity.MEDIUM,
+                    title="Conditions or exceptions may not overlap; conflict is unproven",
+                    evidence=(Evidence(a.line, a.line, a.text), Evidence(b.line, b.line, b.text)),
+                    why_it_matters=(
+                        "The deterministic parser cannot establish whether the different guards "
+                        "permit and prohibit the same action in the same state."
+                    ),
+                    literalist_path="No reachable violating path was established by these clauses.",
+                    hardening="Define guard precedence and disjointness in a verifiable rule model.",
+                    confidence=0.6,
                 ))
         return out
 

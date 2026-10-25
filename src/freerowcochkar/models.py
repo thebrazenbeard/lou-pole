@@ -41,6 +41,7 @@ class AnalysisReport:
     profile: str
     findings: list[Finding] = field(default_factory=list)
     intent: str | None = None
+    coverage: dict[str, Any] = field(default_factory=dict)
 
     @property
     def risk_score(self) -> int:
@@ -59,4 +60,5 @@ class AnalysisReport:
             "risk_score": self.risk_score,
             "finding_count": len(self.findings),
             "findings": [f.to_dict() for f in self.findings],
+            "coverage": self.coverage,
         }

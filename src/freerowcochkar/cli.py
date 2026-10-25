@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from .analyzer import analyze
+from .analyzer import analyze, scan_coverage
 from .constraints import ConstraintGraph
 from .rules import extract_rules
 
@@ -17,6 +17,11 @@ def _render_text(report) -> str:
     ]
     if report.intent:
         lines.append(f"Declared intent: {report.intent}")
+    lines.append(
+        f"Coverage: {report.coverage.get('extracted_rule_count', 0)} extracted rules; "
+        f"{report.coverage.get('unparsed_normative_clause_count', 0)} unparsed normative-looking clauses. "
+        "Zero findings is not a safety determination."
+    )
 
     for i, finding in enumerate(report.findings, 1):
         lines.append("")
@@ -65,7 +70,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.graph_json:
         graph = ConstraintGraph.from_rules(extract_rules(text))
-        print(json.dumps(graph.to_dict(), indent=2))
+        payload = graph.to_dict()
+        payload["coverage"] = scan_coverage(text)
+        print(json.dumps(payload, indent=2))
         return 1 if graph.search_literal_compliance_paths() else 0
 
     report = analyze(text, profile=args.profile, intent=args.intent)
