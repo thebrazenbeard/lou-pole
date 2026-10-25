@@ -185,7 +185,9 @@ def _ev(clause: Clause) -> tuple[Evidence, ...]:
     return (Evidence(clause.line, clause.line, clause.text),)
 
 
-def scan_coverage(text: str, *, include_nonoperative: bool = False) -> dict[str, object]:
+def scan_coverage(
+    text: str, *, include_nonoperative: bool = False, intent: str | None = None,
+) -> dict[str, object]:
     """Expose observable parser gaps without claiming semantic completeness."""
     roles = mask_nonoperative_markdown(text, include_nonoperative=include_nonoperative)
     operative_text = roles.masked_text
@@ -215,7 +217,7 @@ def scan_coverage(text: str, *, include_nonoperative: bool = False) -> dict[str,
         status = "heuristic_partial"
     else:
         status = "heuristic_extracted_unverified"
-    return {
+    coverage: dict[str, object] = {
         "status": status,
         "nonempty_clause_count": len(clauses),
         "extracted_rule_count": extracted_count,
@@ -229,6 +231,22 @@ def scan_coverage(text: str, *, include_nonoperative: bool = False) -> dict[str,
             "Excluded Markdown spans have unverified authority, not proved nonoperative status."
         ),
     }
+    if intent is not None:
+        coverage["intent_evaluation"] = {
+            "status": "not_evaluated",
+            "unsupported_mechanisms": [
+                "ordered_state_transitions",
+                "cross_instance_identity_and_credit",
+                "external_evidence_custody",
+            ],
+            "notice": (
+                "The declared intent is recorded, not evaluated or enforced by detectors. "
+                "In particular, temporally ordered state transitions, cross-instance "
+                "identity/credit, and independent evidence custody are not modeled. "
+                "Zero findings is not evidence of compliance with this intent."
+            ),
+        }
+    return coverage
 
 
 def source_provenance(text: str, *, source_url: str | None = None) -> dict[str, str]:
@@ -290,7 +308,9 @@ class Analyzer:
             profile=profile,
             findings=findings,
             intent=intent,
-            coverage=scan_coverage(text, include_nonoperative=include_nonoperative),
+            coverage=scan_coverage(
+                text, include_nonoperative=include_nonoperative, intent=intent,
+            ),
             source=source_provenance(text, source_url=source_url)
             if include_source or source_url is not None else None,
         )
