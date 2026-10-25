@@ -26,3 +26,18 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -e .
       - run: python -m unittest discover -s tests -v
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip wheel --no-deps --wheel-dir dist .
+      - run: python -m pip install --no-deps --force-reinstall dist/freerowcochkar-*.whl
+      - run: freerowcochkar --help
+      - run: |
+          printf 'Operators must not export customer records.\nOperators may export customer records.\n' | \
+            freerowcochkar --json > report.json || test "$?" -eq 1
+          python -c 'import json; p=json.load(open("report.json")); assert any(f["category"] == "literal_permission_conflict" for f in p["findings"])'

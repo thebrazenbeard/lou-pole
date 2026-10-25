@@ -196,6 +196,12 @@ class ConstraintGraph:
             for allow in permissive:
                 if ban.effect_key != allow.effect_key:
                     continue
+                # A ban with an explicit exception and a permission confined to
+                # that same exception do not conflict. Only suppress when the
+                # predicates match literally; semantic equivalence is outside
+                # this deterministic parser's scope.
+                if guard_relation(ban, allow) != "potential_conflict":
+                    continue
 
                 if allow.indirect and not ban.indirect and ban.subject == allow.subject:
                     paths.append(
@@ -236,6 +242,51 @@ class ConstraintGraph:
                         )
                     )
         return _dedupe_paths(paths)
+
+
+def matching_exception_condition(ban: Rule, allow: Rule) -> bool:
+    """Recognize one narrow, text-identical exception/permission pairing.
+
+    For example, "must not X unless Y" and "may X when Y" are
+    consistent. Similar-looking or paraphrased predicates stay unresolved.
+    """
+    if not ban.exception or not allow.condition:
+        return False
+    exception = re.fullmatch(r"unless\s+(.+)", ban.exception, re.IGNORECASE)
+    condition = re.fullmatch(
+        r"(?:when|if|only\s+if|provided\s+that)\s+(.+)",
+        allow.condition,
+        re.IGNORECASE,
+    )
+    if not exception or not condition:
+        return False
+
+    def normalize_predicate(value: str) -> str:
+        return re.sub(r"\s+", " ", value.casefold()).strip(" .,:;")
+
+    return normalize_predicate(exception.group(1)) == normalize_predicate(condition.group(1))
+
+
+def guard_relation(ban: Rule, allow: Rule) -> str:
+    """Return compatible, unresolved or potential_conflict for literal guards.
+
+    This does not infer temporal, role, or semantic predicate equivalence.
+    An unqualified rule potentially overlaps a qualified one; two distinct
+    guards cannot be declared overlapping by this grammar.
+    """
+    if matching_exception_condition(ban, allow):
+        return "compatible"
+    if ban.exception and allow.condition:
+        return "unresolved"
+    if ban.condition and allow.exception:
+        return "unresolved"
+    if ban.condition and allow.condition:
+        norm = lambda value: re.sub(r"\s+", " ", value.casefold()).strip(" .,:;")
+        if norm(ban.condition) != norm(allow.condition):
+            return "unresolved"
+    if ban.exception and allow.exception and ban.exception != allow.exception:
+        return "unresolved"
+    return "potential_conflict"
 
 
 def normalize_effect(action: str, obj: str) -> str:

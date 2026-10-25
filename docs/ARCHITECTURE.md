@@ -219,6 +219,15 @@ production.
 The same actor is both permitted and prohibited to produce the same normalized effect,
 with no represented precedence rule.
 
+The current parser does not have a theorem prover for conditions. It suppresses
+an unconditional conflict when a prohibition's `unless` exception literally
+matches a permission's `if`/`when` condition, and does not claim graph
+reachability when two explicit guards differ. The ordinary analyzer emits a
+medium-severity `guard_overlap_unknown` review candidate for unresolved
+guard pairs. `until`, `after`, and related qualifiers are preserved as source
+conditions, not evaluated against a clock or event model. The absence of a
+graph path is not proof that no violating behavior is reachable.
+
 Future path classes should include:
 
 - exception chaining;
@@ -257,6 +266,12 @@ The CLI accepts `--intent` as a plain-language declaration of what the author me
 protect.
 
 V1 preserves this in the report but does not yet use it as a semantic constraint.
+
+The CLI additionally exposes heuristic extraction coverage in JSON and text:
+extracted rule count and normative-looking source clauses not represented as
+rules. This can reveal dropped obligations but is **not** a completeness
+certificate; a clause can also be parsed incorrectly without appearing in the
+unparsed list. Exit status zero and risk score zero have no clearance meaning.
 
 Future versions should parse declared invariants into a distinct invariant graph, then
 compare reachable literal behavior against that graph. The invariant graph must remain
