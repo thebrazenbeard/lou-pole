@@ -69,6 +69,15 @@ Add the invariant the author actually intended:
 freerowcochkar rules.md --intent "No protected effect occurs without explicit authorization"
 ~~~
 
+**`--intent` is an annotation, not an evaluated constraint.** It is copied
+into the report and, in JSON modes, accompanied by an explicit
+`coverage.intent_evaluation.status = "not_evaluated"` declaration. The current
+heuristic/parser and graph search do not check that findings violate the
+declared intent. In particular they do not model ordered state transitions,
+different goal instances sharing one target, delayed outcome attribution, or
+independently authenticated evidence. A zero-finding, zero-risk-score report
+cannot clear such cases. See [temporal audit limitation](https://github.com/thebrazenbeard/lou-pole/issues/9).
+
 Machine-readable finding output:
 
 ~~~bash

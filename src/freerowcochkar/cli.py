@@ -109,8 +109,8 @@ def _render_text(report) -> str:
         f"FreeRowCochkar profile={_terminal_safe(report.profile)} risk={report.risk_score}/100 "
         f"findings={len(report.findings)}"
     ]
-    if report.intent:
-        lines.append(f"Declared intent: {_terminal_safe(report.intent)}")
+    if report.intent is not None:
+        lines.append(f"Declared intent (not evaluated): {_terminal_safe(report.intent)}")
     lines.append(
         f"Coverage: {report.coverage.get('extracted_rule_count', 0)} extracted rules; "
         f"{report.coverage.get('unparsed_normative_clause_count', 0)} unparsed normative-looking clauses. "
@@ -145,7 +145,9 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Analysis profile.",
     )
-    parser.add_argument("--intent", help="Optional plain-language intended invariant.")
+    parser.add_argument(
+        "--intent", help="Optional plain-language intended invariant (annotation only; not evaluated).",
+    )
     parser.add_argument(
         "--provenance", action="store_true",
         help="Include a SHA-256 digest of the analyzed UTF-8 text in JSON output.",
@@ -186,8 +188,11 @@ def main(argv: list[str] | None = None) -> int:
             graph = ConstraintGraph.from_rules(rules)
             payload = graph.to_dict()
             payload["coverage"] = scan_coverage(
-                text, include_nonoperative=args.include_nonoperative
+                text, include_nonoperative=args.include_nonoperative,
+                intent=args.intent,
             )
+            if args.intent is not None:
+                payload["intent"] = args.intent
             if args.provenance or args.source_url is not None:
                 payload["source"] = source_provenance(text, source_url=args.source_url)
             _bounded_output(json.dumps(payload, indent=2))
