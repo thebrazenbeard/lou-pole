@@ -47,6 +47,11 @@ CONDITION = re.compile(
 )
 EXCEPTION = re.compile(r"\b(unless|except(?:\s+when|\s+for)?|notwithstanding)\b(.+)$", re.IGNORECASE)
 WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+INLINE_SUBJECT_MARKUP = re.compile(
+    r"(?<![\w\\*_`])(?P<marker>\*{1,3}|_{1,3}|`)"
+    r"(?P<label>[A-Za-z][A-Za-z0-9_ -]*?)"
+    r"(?P=marker)(?![\w*_`])"
+)
 TO_ACTION = re.compile(
     r"\b(?:to|that\s+\w+\s+should)\s+([A-Za-z][A-Za-z0-9_-]*)\s+(.+?)(?:[.;]|$)",
     re.IGNORECASE,
@@ -276,7 +281,9 @@ def _norm_phrase(value: str) -> str:
 
 
 def _norm_subject(value: str) -> str:
-    return _norm_phrase(_strip_markdown_wrappers(value))
+    value = _strip_markdown_wrappers(value)
+    value = INLINE_SUBJECT_MARKUP.sub(lambda match: match.group("label"), value)
+    return _norm_phrase(value)
 
 
 def _strip_markdown_wrappers(value: str) -> str:
