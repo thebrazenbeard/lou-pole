@@ -116,16 +116,14 @@ def extract_rules(text: str, *, include_nonoperative: bool = False) -> list[Rule
 
 
 def _sentences(raw: str) -> list[str]:
-    sentences: list[str] = []
-    for part in re.split(r"(?<=[.!?;])\s+", raw):
-        # Remove Markdown list/heading markers, not inline emphasis on actor names.
-        cleaned = re.sub(r"^(?:(?:[-*+]\s+)|(?:#+\s+)|(?:>+\s*))*", "", part.strip())
-        if cleaned:
-            sentences.append(cleaned)
-    return sentences
+    return [part.strip() for part in re.split(r"(?<=[.!?;])\s+", raw) if part.strip()]
 
 
 def _parse_sentence(text: str, line: int, ordinal: int) -> Rule | None:
+    source_text = text
+    # Treat Markdown structure as presentation while retaining literal evidence.
+    text = re.sub(r"^(?:(?:[-*+]\s+)|(?:#+\s+)|(?:>+\s*))*", "", text)
+    text = _strip_markdown_wrappers(text)
     if UNKNOWN_NEGATIVE_QUANTIFIER.match(text):
         return None
     if DESCRIPTIVE_NEVER.search(text):
@@ -180,7 +178,7 @@ def _parse_sentence(text: str, line: int, ordinal: int) -> Rule | None:
     if not action:
         return None
 
-    span = SourceSpan(line_start=line, line_end=line, text=text)
+    span = SourceSpan(line_start=line, line_end=line, text=source_text)
     return Rule(
         rule_id=f"R{ordinal:04d}",
         modality=modality,
@@ -278,6 +276,10 @@ def _norm_phrase(value: str) -> str:
 
 
 def _norm_subject(value: str) -> str:
+    return _norm_phrase(_strip_markdown_wrappers(value))
+
+
+def _strip_markdown_wrappers(value: str) -> str:
     value = value.strip()
     while True:
         for marker in ("**", "__", "*", "_", "`"):
@@ -286,4 +288,4 @@ def _norm_subject(value: str) -> str:
                 break
         else:
             break
-    return _norm_phrase(value)
+    return value
