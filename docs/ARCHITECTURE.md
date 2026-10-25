@@ -63,7 +63,7 @@ one or more source spans.
 input material
     |
     v
-normalization
+line-preserving source-role masking
     |
     v
 deterministic clause extraction
@@ -103,6 +103,14 @@ Current supported source classes:
 - contracts or legal-like text;
 - source code;
 - mixed text/code documents.
+
+The Markdown lexical boundary masks explicitly quoted and fenced regions from
+default operative-policy inference, preserving byte-independent character
+offsets and source line numbers. Excluded spans retain their raw text and carry
+`attribution_status: unverified` in coverage: formatting is **not** authority
+evidence. Callers may explicitly opt in to analyzing these regions. Headings
+are retained because operative prohibitions can appear in headings. The lexer
+does not infer document-level incorporation, authority, or semantic role.
 
 Future adapters may preserve richer structure from Markdown, YAML, JSON, source ASTs,
 policy languages, repository metadata, or document formats. Adapters must preserve
@@ -151,6 +159,10 @@ Rule {
 
 The parser is conservative. If the system cannot extract a defensible subject/action
 structure, it should omit the rule rather than invent one.
+Its bounded approval qualifier recognizes `without prior/explicit/written
+approval|authorization|permission|consent` as a guard, not an action. Passive
+voice, causative `have` delegation and semantic role mapping need a later
+representation; their absence from the graph is not evidence of compliance.
 
 ## Layer 3: Constraint graph
 
@@ -269,9 +281,20 @@ V1 preserves this in the report but does not yet use it as a semantic constraint
 
 The CLI additionally exposes heuristic extraction coverage in JSON and text:
 extracted rule count and normative-looking source clauses not represented as
-rules. This can reveal dropped obligations but is **not** a completeness
+rules. Coverage statuses include `empty_input`, `no_rules_extracted`,
+`heuristic_partial`, and `heuristic_extracted_unverified`. Markdown excluded
+spans are separately enumerated, with attribution explicitly unverified. This
+can reveal dropped obligations but is **not** a completeness
 certificate; a clause can also be parsed incorrectly without appearing in the
 unparsed list. Exit status zero and risk score zero have no clearance meaning.
+
+The opt-in `source` payload binds `content_sha256` to the caller-supplied UTF-8
+string, preserving line endings. Its URL, if provided, is caller-declared and
+`verification: not_checked`; neither fetching nor external authenticity is
+asserted. Graph and report CLI formats use the same digest basis. Code regexes
+scan Python executable token regions when the complete input parses as Python,
+retaining f-string interpolation. Other/malformed source falls back to generic
+regex matching; dynamically executed string content is not proven covered.
 
 Future versions should parse declared invariants into a distinct invariant graph, then
 compare reachable literal behavior against that graph. The invariant graph must remain
@@ -342,6 +365,7 @@ and model-derived results separately.
 ```text
 src/freerowcochkar/
     analyzer.py       orchestration and finding synthesis
+    source_roles.py   Markdown lexical masks and excluded-span evidence
     models.py         public report/finding data model
     rules.py          deterministic normative-rule extraction
     constraints.py    typed graph and adversarial path search

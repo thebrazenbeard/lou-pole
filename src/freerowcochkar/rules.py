@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from .constraints import Modality, Rule, SourceSpan, normalize_effect
+from .source_roles import mask_nonoperative_markdown
 
 
 NEGATIVE_MODAL = re.compile(
@@ -35,8 +36,13 @@ INDIRECT_SCOPE = re.compile(
     r"request|requests|requested|ask|asks|asked)\b",
     re.IGNORECASE,
 )
+APPROVAL_QUALIFIER = (
+    r"without\s+(?:(?:prior|explicit|written)\s+){0,3}"
+    r"(?:approval|authorization|permission|consent)"
+)
 CONDITION = re.compile(
-    r"\b(only\s+if|provided\s+that|if|when|until|after|before|while)\b(.+)$",
+    rf"\b(only\s+if|provided\s+that|if|when|until|after|before|while)\b(.+)$|"
+    rf"\b{APPROVAL_QUALIFIER}\b.*$",
     re.IGNORECASE,
 )
 EXCEPTION = re.compile(r"\b(unless|except(?:\s+when|\s+for)?|notwithstanding)\b(.+)$", re.IGNORECASE)
@@ -50,7 +56,15 @@ LEADING_FILLER = {
     "directly", "indirectly", "ever", "generally", "normally", "only", "or", "and",
 }
 OBJECT_TRAIL = re.compile(
-    r"\b(only\s+if|provided\s+that|if|when|unless|except|because|after|before|until|while)\b.*$",
+    rf"\b(only\s+if|provided\s+that|if|when|unless|except|because|after|before|until|while|{APPROVAL_QUALIFIER})\b.*$",
+    re.IGNORECASE,
+)
+UNSUPPORTED_PASSIVE = re.compile(
+    r"^be\s+(?:sent|paid|made|given|\w+(?:ed|en))\b",
+    re.IGNORECASE,
+)
+UNSUPPORTED_CAUSATIVE_HAVE = re.compile(
+    r"^have\s+.+\b(?:delete|send|export|transfer|remove|modify|approve)\b",
     re.IGNORECASE,
 )
 LEADING_NO_MODAL = re.compile(
@@ -80,7 +94,12 @@ DESCRIPTIVE_NEVER = re.compile(
 )
 
 
-def extract_rules(text: str) -> list[Rule]:
+def extract_rules(text: str, *, include_nonoperative: bool = False) -> list[Rule]:
+    # Lexically isolated quotes and fences are unverified as operative policy.
+    # Preserve offsets so evidence still points to the original source lines.
+    text = mask_nonoperative_markdown(
+        text, include_nonoperative=include_nonoperative
+    ).masked_text
     rules: list[Rule] = []
     ordinal = 0
     for line_no, raw in enumerate(text.splitlines(), 1):
@@ -146,6 +165,13 @@ def _parse_sentence(text: str, line: int, ordinal: int) -> Rule | None:
     condition = _capture_tail(CONDITION, tail)
     exception = _capture_tail(EXCEPTION, tail)
     core = OBJECT_TRAIL.sub("", tail).strip(" .,:;")
+    if UNSUPPORTED_PASSIVE.match(core):
+        # Neither the actual actor nor its relation to the effect is known.
+        return None
+    if UNSUPPORTED_CAUSATIVE_HAVE.match(core):
+        # "Have a service do X" is not an obligation, ban, or permission to
+        # the action "have". The delegated effect needs explicit modeling.
+        return None
     indirect = bool(INDIRECT_SCOPE.search(core))
 
     action, obj, delegated_actor = _extract_effect(core, indirect)

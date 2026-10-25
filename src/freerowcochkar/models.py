@@ -42,6 +42,7 @@ class AnalysisReport:
     findings: list[Finding] = field(default_factory=list)
     intent: str | None = None
     coverage: dict[str, Any] = field(default_factory=dict)
+    source: dict[str, str] | None = None
 
     @property
     def risk_score(self) -> int:
@@ -54,7 +55,7 @@ class AnalysisReport:
         return min(100, raw * 4)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "profile": self.profile,
             "intent": self.intent,
             "risk_score": self.risk_score,
@@ -62,3 +63,6 @@ class AnalysisReport:
             "findings": [f.to_dict() for f in self.findings],
             "coverage": self.coverage,
         }
+        if self.source is not None:
+            result["source"] = self.source
+        return result
