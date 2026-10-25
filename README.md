@@ -89,6 +89,36 @@ exit status of zero means no *detected* high-severity findings (or graph paths);
 it does **not** mean the input is safe, fully parsed, or compliant. The numeric
 risk score is a triage heuristic, not exploit likelihood.
 
+### CLI resource and failure boundary
+
+The command-line interface refuses input it cannot audit within bounded
+resources. It accepts only regular files or piped standard input (not named
+pipes or device files as positional paths), and validates UTF-8 strictly.
+On POSIX, special-path rejection uses nonblocking open and `fstat`; final
+symlinks are rejected wherever `O_NOFOLLOW` is supported. This does not
+claim identical special-file blocking behavior on every Windows runtime.
+Its current conservative ceilings are **128 KiB** source text, **8 KiB** per
+line, **1,024** total nonempty operative-text clauses, **64** normative
+operative clauses, **40** extracted rules, **400** possible rule
+pairs, **2 KiB** per caller-supplied `--intent` / `--source-url`, and **2 MiB**
+of rendered output. These budgets apply equally to `--json` and
+`--graph-json`, including explicit `--include-nonoperative` mode.
+
+- Exit **0**: no high-severity findings or graph paths were detected, **not**
+  proof of compliance or completeness.
+- Exit **1**: high-severity finding or graph path detected.
+- Exit **2**: **`INCOMPLETE_UNKNOWN`**; the audit did not complete. No report
+  is emitted to stdout. Check stderr, reduce or divide input, and audit the
+  entirety of the source before drawing any conclusion.
+
+No oversized input is silently truncated and no incomplete audit is reported
+as clean. Plain-text evidence and declared intent escape terminal controls;
+machine-readable JSON still describes the original analyzed UTF-8 text.
+The imported Python analyzer is a separate, caller-managed API **without**
+these CLI ceilings or a whole-process deadline. CLI admission limits bound
+known combinatorial paths, but do not constitute a real-time execution
+guarantee or a proof that heuristic extraction is complete.
+
 The typed graph recognizes a bounded subset of English. It handles common
 permission/prohibition forms, certain direct/delegated effects, and textual
 conditions. A ban qualified by `unless X` and a permission guarded by the

@@ -27,6 +27,19 @@ jobs:
       - run: python -m pip install -e .
       - run: python -m unittest discover -s tests -v
 
+  windows-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - run: python -m unittest discover -s tests -v
+      - name: Malformed UTF-8 is incomplete, never a clean report
+        run: >-
+          python -c "import subprocess,sys; p=subprocess.run([sys.executable,'-m','freerowcochkar.cli','-','--json'],input=bytes([255]),capture_output=True,timeout=5); assert p.returncode == 2 and not p.stdout and b'INCOMPLETE_UNKNOWN' in p.stderr and b'Traceback' not in p.stderr, (p.returncode,p.stdout,p.stderr)"
+
   package:
     runs-on: ubuntu-latest
     steps:
