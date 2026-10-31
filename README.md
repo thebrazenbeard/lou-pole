@@ -1,6 +1,6 @@
 > **License:** Source-visible, not open source. Original material is proprietary. Commercial use, redistribution, hosted-service use, and commercial derivative products require written permission. See [LICENSE](LICENSE) and [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md). Separately identified third-party components retain their own licenses.
 
-# FreeRowCochkar
+# FreeRowCochkar (Lou-Pole)
 
 A defensive adversarial loophole finder inspired by the literalist, boundary-testing
 reasoning associated with Nick Freeman, Clarence Darrow, Johnnie Cochran, and
@@ -38,6 +38,9 @@ This is intentionally an auditor, not an oracle. A finding means "inspect this b
 not "this is definitely exploitable" and not "this behavior is lawful."
 
 ## Install
+
+Requires Python 3.10 or newer. The runtime declares no third-party dependencies.
+Install from a checkout:
 
 ~~~bash
 python -m pip install -e .
@@ -178,22 +181,26 @@ the permissive rule and claim that "for support" controls the prohibition. The h
 question is then concrete: who can invoke that exception, under what conditions, with
 what scope, and which invariant remains non-waivable?
 
-## Direction
+## Current architecture and direction
 
-V1 uses reproducible heuristics. The next major layer is a typed constraint graph:
+The engine already combines deterministic text heuristics with typed rule extraction,
+a constraint graph, and bounded adversarial path search. Graph search presently detects
+some same-effect permission/prohibition collisions and delegated-route gaps. It is not
+a general state-transition engine, a theorem prover, or an evaluator of `--intent`.
 
 ~~~text
-rule text
-  -> obligations / permissions / prohibitions / exceptions / delegation
-  -> state-and-action graph
-  -> adversarial path search
-  -> evidence-bound loophole candidate
-  -> hardening patch
-  -> regression case proving the patch closes the path
+UTF-8 rule or code input
+  -> line-preserving Markdown source-role masking
+  -> heuristic findings + typed rule extraction
+  -> bounded constraint graph and candidate path search
+  -> source-linked findings and hardening suggestions
 ~~~
 
-That is the core of the project: not merely linting words, but searching the reachable
-space between literal rules and intended outcomes.
+Future work includes richer role/condition reasoning, multi-step temporal and state
+transitions, independently authenticated authority evidence, and checking reachability
+against a separately represented intended invariant. A hardening suggestion is not
+itself a verified fix; test amended rules and preserve counterexamples before treating
+any candidate as closed.
 
 Architecture is committed in the repository:
 
