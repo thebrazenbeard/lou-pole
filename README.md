@@ -37,6 +37,10 @@ Current detectors cover:
 This is intentionally an auditor, not an oracle. A finding means "inspect this boundary,"
 not "this is definitely exploitable" and not "this behavior is lawful."
 
+There is also a separate **constructive opportunity planner** for finding
+declared, zero-budget routes toward a useful goal. It does not execute actions
+or change permissions; see [Constructive opportunity planning](#constructive-opportunity-planning).
+
 ## Install
 
 ~~~bash
@@ -163,6 +167,83 @@ ordinary string literals **only for parseable Python**; f-string interpolations
 are retained. Other or malformed languages use generic regex fallback, and
 executable code dynamically assembled in `exec()`/`eval()` strings is **not
 analyzed**. These are explicit coverage limitations, not clearance findings.
+
+## Constructive opportunity planning
+
+`freerowcochkar.opportunities` searches a finite, caller-supplied action graph
+for ways to achieve a goal using already-declared capabilities. This is the
+*help me do more within my constraints* use of Lou-pole: it can propose a
+zero-cost path or identify which approval is missing instead of treating every
+constraint as the end of useful work. It is an **optional, source-only advisory
+library**, not an agent runtime integration, independently verified permission
+system, or action executor.
+
+Python API example:
+
+```python
+from dataclasses import replace
+from freerowcochkar.opportunities import (
+    Action, OpportunityRequest, RouteStatus, plan_opportunity,
+)
+
+request = OpportunityRequest(
+    goal="reviewed_report",
+    initial_capabilities=("source_ready",),
+    actions=(
+        Action("draft", ("source_ready",), ("draft_ready",), ("read_source",)),
+        Action("review", ("draft_ready",), ("reviewed_report",), ("review",),
+               required_approvals=("owner",)),
+    ),
+    allowed_effects=("read_source", "review"),
+    cost_ceiling=0,
+)
+pending = plan_opportunity(request)
+assert pending.status is RouteStatus.NEEDS_APPROVAL
+assert pending.missing_approvals == ("owner",)
+
+# An external authority would have to authenticate this approval in reality.
+claimed_approved = replace(request, granted_approvals=("owner",))
+available = plan_opportunity(claimed_approved)
+assert available.status is RouteStatus.AVAILABLE
+assert available.action_ids == ("draft", "review")
+assert available.total_cost == 0
+assert available.to_dict()["executed"] is False
+```
+
+After installation, the separate JSON CLI can read a planning request from
+stdin or a regular UTF-8 file:
+
+```sh
+printf '%s\n' '{"goal":"reviewed_report","initial_capabilities":["source_ready"],"actions":[{"id":"draft","requires":["source_ready"],"provides":["reviewed_report"],"effects":["read_source"]}],"allowed_effects":["read_source"],"cost_ceiling":0}' | lou-pole-opportunities -
+```
+
+That example returns an advisory `AVAILABLE` route with `action_ids: ["draft"]`,
+`total_cost: 0`, `executed: false`, `verified: false`, and
+`evidence_class: "CALLER_SUPPLIED_UNVERIFIED"`. All action descriptions,
+capabilities, `allowed_effects`, `granted_approvals`, costs, and provenance
+are **caller assertions**, not authenticated observations or actual grants.
+`AVAILABLE` only means the *declared graph* yields an apparently eligible
+route; the host must independently verify real permissions and prerequisites,
+enforce effects, require approval where necessary, and execute the work itself.
+
+Statuses are `AVAILABLE`, `NEEDS_APPROVAL`, `NO_ROUTE`, or
+`INCOMPLETE_UNKNOWN`. `NO_ROUTE` means no route was found within the completed
+modeled search, **not** that no solution exists outside the supplied model.
+`INCOMPLETE_UNKNOWN` means bounds prevented reliable resolution; do not
+reinterpret it as `NO_ROUTE`, `AVAILABLE`, or a definitive approval need.
+Actions whose effects are not explicitly allowed and routes above
+`cost_ceiling` are ineligible. `cost_ceiling=0` expresses the user's $0 budget
+inside the supplied model, but it does not independently validate real-world
+costs, billing, or side effects. A completed CLI advisory result exits `0`;
+malformed input or an incomplete CLI admission exits `2` with an
+`INCOMPLETE_UNKNOWN` diagnostic. A JSON result with status
+`INCOMPLETE_UNKNOWN` still needs explicit status inspection even if the CLI
+exits `0`.
+
+Neither the Python function nor the CLI has been installed in Vera Mono,
+ChatGPT's native runtime, or Patrick's hosts by this repository. Passing these
+examples verifies local source behavior only; it does not show independent
+effect enforcement, custody, deployment, or a model's actual behavior changing.
 
 ## Example
 
