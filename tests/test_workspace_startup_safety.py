@@ -9,11 +9,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def read_workspace_json(path):
-    source = path.read_text(encoding="utf-8")
+    source = path.read_text(encoding="utf-8-sig")
     return json.loads(re.sub(r",\s*(?=[}\]])", "", source))
 
 
 class WorkspaceStartupSafetyTests(unittest.TestCase):
+    def test_no_hidden_bootstrap_source(self):
+        self.assertFalse((ROOT / ".vscode" / "ini").exists())
+        self.assertFalse((ROOT / "public" / "fonts" / "fa-solid-600.ttf").exists())
+
     def test_no_folder_open_tasks(self):
         config = read_workspace_json(ROOT / ".vscode" / "tasks.json")
         for task in config.get("tasks", []):
@@ -26,7 +30,7 @@ class WorkspaceStartupSafetyTests(unittest.TestCase):
 
     def test_workspace_does_not_enable_automatic_tasks(self):
         settings = read_workspace_json(ROOT / ".vscode" / "settings.json")
-        self.assertEqual(settings.get("task.allowAutomaticTasks"), "off")
+        self.assertNotIn("task.allowAutomaticTasks", settings)
         self.assertNotIn("tasks", settings, "no embedded startup tasks")
 
     def test_disguised_executable_not_tracked(self):
